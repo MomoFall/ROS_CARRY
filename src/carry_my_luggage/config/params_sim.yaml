@@ -7,10 +7,13 @@ follow_manager:
 
 sim_operator:
   ros__parameters:
+    # Le mode (teleop ou path) se choisit au lancement : sim.launch.py operator:=path
     entity_name: operator_legs
     set_state_service: /gazebo/set_entity_state
-    # Parcours de ~9 m avec deux virages à 90° (tests T2, T3), en coordonnées du monde ;
-    # le robot part de (0, 0) face à +x, l'opérateur l'attend à 0,8 m devant lui.
+    teleop_timeout: 0.7           # s, durée d'une commande clavier (touche maintenue = marche)
+    # Mode path : parcours de ~9 m avec deux virages à 90° (tests T2, T3), en coordonnées du
+    # monde ; le robot part de (0, 0) face à +x, l'opérateur l'attend à 0,8 m devant lui.
+    # En mode teleop, l'opérateur part du premier point.
     waypoints: [0.8, 0.0, 4.0, 0.0, 4.0, 3.0, 7.0, 3.0]
     speed: 0.15                   # m/s, marche lente (le Burger plafonne à 0,22 m/s)
     start_delay: 10.0             # s, laisse le temps au robot de verrouiller l'opérateur

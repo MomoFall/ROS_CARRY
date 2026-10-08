@@ -1,7 +1,10 @@
 """
 Simulation: Gazebo + TurtleBot3 Burger + simulated operator + our four nodes.
 
-Usage: ros2 launch carry_my_luggage sim.launch.py [gui:=false] [rviz:=false] [record:=true]
+Usage: ros2 launch carry_my_luggage sim.launch.py [operator:=path] [gui:=false]
+[rviz:=false] [record:=true]
+With operator:=teleop (default), drive the operator from another terminal with
+ros2 run carry_my_luggage operator_teleop
 """
 
 from datetime import datetime
@@ -16,8 +19,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-NODES = ('leg_detector', 'operator_tracker', 'gesture_detector', 'follow_manager',
-         'sim_operator')
+NODES = ('leg_detector', 'operator_tracker', 'gesture_detector', 'follow_manager')
 BAG_TOPICS = ['/scan', '/odom', '/tf', '/tf_static', '/legs', '/target', '/target_polar',
               '/follow_state', '/stop_gesture', '/cmd_vel', '/follow_markers']
 
@@ -44,6 +46,10 @@ def generate_launch_description():
                                         condition=condition)
 
     return LaunchDescription([
+        DeclareLaunchArgument('operator', default_value='teleop', choices=['teleop', 'path'],
+                              description='teleop : opérateur piloté au clavier '
+                                          '(ros2 run carry_my_luggage operator_teleop) ; '
+                                          'path : parcours scripté de params_sim.yaml'),
         DeclareLaunchArgument('gui', default_value='true', description='Client Gazebo'),
         DeclareLaunchArgument('rviz', default_value='true', description='Lancer RViz2'),
         DeclareLaunchArgument('record', default_value='false',
@@ -65,6 +71,9 @@ def generate_launch_description():
 
         *[Node(package='carry_my_luggage', executable=name, name=name, output='screen',
                parameters=params) for name in NODES],
+        Node(package='carry_my_luggage', executable='sim_operator', name='sim_operator',
+             output='screen',
+             parameters=params + [{'mode': LaunchConfiguration('operator')}]),
 
         include(os.path.join(pkg, 'launch', 'rviz.launch.py'),
                 condition=IfCondition(LaunchConfiguration('rviz')), use_sim_time='true'),

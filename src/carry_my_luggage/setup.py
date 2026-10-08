@@ -48,6 +48,7 @@ setup(
             'gesture_detector = carry_my_luggage.gesture_detector_node:main',
             'follow_manager = carry_my_luggage.follow_manager_node:main',
             'sim_operator = carry_my_luggage.sim_operator_node:main',
+            'operator_teleop = carry_my_luggage.operator_teleop_node:main',
         ],
     },
 )

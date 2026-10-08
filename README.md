@@ -18,12 +18,14 @@ carry_my_luggage_ws/                  # dépôt Git = workspace colcon
     │   ├── operator_tracker_node.py  # /legs -> /target (verrouillage + Kalman)
     │   ├── gesture_detector_node.py  # /scan + /target + /odom -> /stop_gesture
     │   ├── follow_manager_node.py    # machine à états, commande, sécurité, bips -> /cmd_vel
-    │   ├── sim_operator_node.py      # simulation : fait marcher les jambes dans Gazebo
+    │   ├── sim_operator_node.py      # simulation : déplace les jambes dans Gazebo
+    │   ├── operator_teleop_node.py   # simulation : pilote l'opérateur avec les flèches
     │   ├── markers.py                # marqueurs RViz communs
     │   └── core/                     # logique pure, sans ROS, testée avec pytest
     │       ├── clustering.py  kalman.py  controller.py  gesture.py  state_machine.py
     │       ├── geometry.py           # changements de repère, secteurs du scan
-    │       └── path_walker.py        # trajet de l'opérateur simulé
+    │       ├── path_walker.py        # parcours scripté de l'opérateur simulé
+    │       └── teleop.py             # clavier -> déplacement de l'opérateur simulé
     ├── config/params.yaml            # TOUS les seuils et gains (E1)
     ├── config/params_sim.yaml        # surcharges Gazebo
     ├── launch/sim.launch.py  robot.launch.py  rviz.launch.py
@@ -71,8 +73,8 @@ Sur le Raspberry Pi, inutile d'installer Gazebo :
 colcon test --packages-select carry_my_luggage && colcon test-result --verbose
 ```
 
-57 tests : détection des jambes, Kalman et verrouillage, loi de commande, geste, machine à états,
-plus flake8 et pep257. Pour itérer plus vite sur la logique : `cd src/carry_my_luggage && python3 -m pytest test/`.
+62 tests : détection des jambes, Kalman et verrouillage, loi de commande, geste, machine à états,
+téléopération de l'opérateur simulé, plus flake8 et pep257. Pour itérer plus vite sur la logique : `cd src/carry_my_luggage && python3 -m pytest test/`.
 
 ## Lancer en simulation
 
@@ -80,17 +82,42 @@ plus flake8 et pep257. Pour itérer plus vite sur la logique : `cd src/carry_my_
 ros2 launch carry_my_luggage sim.launch.py              # gui:=false rviz:=false record:=true
 ```
 
-Le robot part de (0, 0). L'opérateur simulé l'attend à 0,8 m pendant 10 s (verrouillage + bip),
-puis marche à 0,15 m/s sur ~9 m avec deux virages à 90°. Il fait une pause de 10 s au deuxième
-virage (F3.5), puis s'arrête au bout du parcours. Les cylindres ne peuvent pas faire le geste
-de la main : terminez la mission avec le service d'arrêt.
+Le robot part de (0, 0). L'opérateur simulé l'attend immobile à 0,8 m devant lui ; le robot le
+verrouille (bip) en moins d'une seconde.
+
+**Piloter l'opérateur au clavier** (par défaut, comme `turtle_teleop_key` de turtlesim), dans un
+second terminal :
+
+```bash
+ros2 run carry_my_luggage operator_teleop
+```
+
+| Touche | Effet |
+|---|---|
+| ↑ / ↓ | avancer / reculer |
+| ← / → | tourner sur place à gauche / à droite |
+| espace | s'arrêter tout de suite |
+| + / - | vitesse de marche (0,15 m/s au départ, entre 0,05 et 0,5 m/s) |
+| Ctrl+C | quitter |
+
+Comme dans turtlesim, l'opérateur marche tant que la touche est maintenue et s'arrête 0,7 s
+après l'avoir relâchée (`teleop_timeout` dans `params_sim.yaml`). Pour suivre un trajet en
+courbe, alternez ↑ et ← / →. Au-delà de 0,22 m/s, le robot ne peut plus suivre et finit par
+perdre l'opérateur : c'est le moyen de tester la recherche (SEARCH).
+
+**Parcours scripté** (tests reproductibles T2, T3) : `sim.launch.py operator:=path`. L'opérateur
+attend 10 s, puis marche à 0,15 m/s sur ~9 m avec deux virages à 90° et une pause de 10 s
+(F3.5). Le parcours se règle dans `config/params_sim.yaml`.
+
+Les cylindres ne peuvent pas faire le geste de la main : terminez la mission avec le service
+d'arrêt.
 
 ```bash
 ros2 service call /stop_follow std_srvs/srv/Trigger
 ```
 
-Le parcours, la vitesse et la pause se règlent dans `config/params_sim.yaml`. Pour tester
-l'arrêt d'urgence ou un obstacle soudain (T7), posez une boîte devant le robot dans Gazebo.
+Pour tester l'arrêt d'urgence ou un obstacle soudain (T7), posez une boîte devant le robot dans
+Gazebo.
 
 Sous WSL, les fenêtres Gazebo et RViz s'affichent sous Windows grâce à WSLg. Si la fenêtre
 Gazebo reste noire ou plante, relancez avec `export LIBGL_ALWAYS_SOFTWARE=1`. Le launch fixe
@@ -234,7 +261,7 @@ Tous ces points sont réglables ou facilement réversibles.
 
 ## Ce qui a été vérifié
 
-- `colcon build` et les 57 tests passent sous ROS 2 Humble (Ubuntu 22.04, WSL).
+- `colcon build` et les 62 tests passent sous ROS 2 Humble (Ubuntu 22.04, WSL).
 - Les 4 nœuds (`robot.launch.py`) ont tourné face à un simulateur 2D cinématique (LiDAR LDS-01
   360 rayons à 5 Hz, bruit 1 cm, table et chaise près du parcours) sur un scénario complet :
   - verrouillage en 0,4 s ;
@@ -249,5 +276,8 @@ Tous ces points sont réglables ou facilement réversibles.
     cible sur la table ou la chaise ;
   - erreur de distance moyenne de +0,15 m (max 0,21 m) ;
   - `/stop_follow` → STOPPED.
+- Pilotage au clavier : `operator_teleop` testé dans un pseudo-terminal (flèches, + / -,
+  Ctrl+C). Dans Gazebo, avec des appuis simulés, le robot suit l'opérateur entre 0,80 et 0,97 m,
+  virages compris, sans le perdre.
 - **Pas encore testé** : le geste et l'occlusion dans Gazebo (seulement en 2D), puis le robot
   réel. Ce sont les prochaines étapes de la démarche (T1 à T8).
