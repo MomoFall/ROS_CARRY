@@ -1,0 +1,179 @@
+<?xml version="1.0"?>
+<!--
+  Salle de test de Carry My Luggage (10 m x 6 m).
+  Le robot part de (0, 0) face à +x ; l'opérateur simulé suit le parcours
+  (0.8, 0) -> (4, 0) -> (4, 3) -> (7, 3) défini dans config/params_sim.yaml.
+  Pièges pour le test T5 (R2) le long du parcours, à environ 0,5 m :
+    - une table dont les pieds ont la largeur d'une jambe (7 cm) ;
+    - une chaise dont les quatre pieds (6 cm) forment deux "paires de jambes".
+  Le plugin gazebo_ros_state fournit /gazebo/set_entity_state à sim_operator.
+-->
+<sdf version="1.6">
+  <world name="follow_test">
+    <include><uri>model://ground_plane</uri></include>
+    <include><uri>model://sun</uri></include>
+
+    <scene>
+      <shadows>false</shadows>
+    </scene>
+
+    <physics type="ode">
+      <real_time_update_rate>1000.0</real_time_update_rate>
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/gazebo</namespace>
+      </ros>
+      <update_rate>1.0</update_rate>
+    </plugin>
+
+    <gui fullscreen="0">
+      <camera name="user_camera">
+        <pose>3.5 -5.5 8.0 0 0.95 1.5708</pose>
+      </camera>
+    </gui>
+
+    <model name="walls">
+      <static>true</static>
+      <link name="link">
+        <collision name="south_collision">
+          <pose>3.5 -1.5 0.25 0 0 0</pose>
+          <geometry><box><size>10.1 0.1 0.5</size></box></geometry>
+        </collision>
+        <visual name="south_visual">
+          <pose>3.5 -1.5 0.25 0 0 0</pose>
+          <geometry><box><size>10.1 0.1 0.5</size></box></geometry>
+          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material>
+        </visual>
+        <collision name="north_collision">
+          <pose>3.5 4.5 0.25 0 0 0</pose>
+          <geometry><box><size>10.1 0.1 0.5</size></box></geometry>
+        </collision>
+        <visual name="north_visual">
+          <pose>3.5 4.5 0.25 0 0 0</pose>
+          <geometry><box><size>10.1 0.1 0.5</size></box></geometry>
+          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material>
+        </visual>
+        <collision name="west_collision">
+          <pose>-1.5 1.5 0.25 0 0 0</pose>
+          <geometry><box><size>0.1 6.1 0.5</size></box></geometry>
+        </collision>
+        <visual name="west_visual">
+          <pose>-1.5 1.5 0.25 0 0 0</pose>
+          <geometry><box><size>0.1 6.1 0.5</size></box></geometry>
+          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material>
+        </visual>
+        <collision name="east_collision">
+          <pose>8.5 1.5 0.25 0 0 0</pose>
+          <geometry><box><size>0.1 6.1 0.5</size></box></geometry>
+        </collision>
+        <visual name="east_visual">
+          <pose>8.5 1.5 0.25 0 0 0</pose>
+          <geometry><box><size>0.1 6.1 0.5</size></box></geometry>
+          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Table : plateau à 0,75 m (hors du plan du LiDAR), pieds de 7 cm espacés de plus de 0,45 m -->
+    <model name="table">
+      <static>true</static>
+      <pose>2.2 -0.8 0 0 0 0</pose>
+      <link name="link">
+        <collision name="top_collision">
+          <pose>0 0 0.74 0 0 0</pose>
+          <geometry><box><size>1.0 0.7 0.03</size></box></geometry>
+        </collision>
+        <visual name="top_visual">
+          <pose>0 0 0.74 0 0 0</pose>
+          <geometry><box><size>1.0 0.7 0.03</size></box></geometry>
+          <material><ambient>0.4 0.25 0.1 1</ambient><diffuse>0.6 0.4 0.2 1</diffuse></material>
+        </visual>
+        <collision name="leg1_collision">
+          <pose>0.43 0.28 0.36 0 0 0</pose>
+          <geometry><cylinder><radius>0.035</radius><length>0.72</length></cylinder></geometry>
+        </collision>
+        <visual name="leg1_visual">
+          <pose>0.43 0.28 0.36 0 0 0</pose>
+          <geometry><cylinder><radius>0.035</radius><length>0.72</length></cylinder></geometry>
+        </visual>
+        <collision name="leg2_collision">
+          <pose>-0.43 0.28 0.36 0 0 0</pose>
+          <geometry><cylinder><radius>0.035</radius><length>0.72</length></cylinder></geometry>
+        </collision>
+        <visual name="leg2_visual">
+          <pose>-0.43 0.28 0.36 0 0 0</pose>
+          <geometry><cylinder><radius>0.035</radius><length>0.72</length></cylinder></geometry>
+        </visual>
+        <collision name="leg3_collision">
+          <pose>0.43 -0.28 0.36 0 0 0</pose>
+          <geometry><cylinder><radius>0.035</radius><length>0.72</length></cylinder></geometry>
+        </collision>
+        <visual name="leg3_visual">
+          <pose>0.43 -0.28 0.36 0 0 0</pose>
+          <geometry><cylinder><radius>0.035</radius><length>0.72</length></cylinder></geometry>
+        </visual>
+        <collision name="leg4_collision">
+          <pose>-0.43 -0.28 0.36 0 0 0</pose>
+          <geometry><cylinder><radius>0.035</radius><length>0.72</length></cylinder></geometry>
+        </collision>
+        <visual name="leg4_visual">
+          <pose>-0.43 -0.28 0.36 0 0 0</pose>
+          <geometry><cylinder><radius>0.035</radius><length>0.72</length></cylinder></geometry>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Chaise : assise à 0,45 m, quatre pieds de 6 cm espacés de 0,4 m -->
+    <model name="chair">
+      <static>true</static>
+      <pose>4.65 1.5 0 0 0 0</pose>
+      <link name="link">
+        <collision name="seat_collision">
+          <pose>0 0 0.45 0 0 0</pose>
+          <geometry><box><size>0.46 0.46 0.04</size></box></geometry>
+        </collision>
+        <visual name="seat_visual">
+          <pose>0 0 0.45 0 0 0</pose>
+          <geometry><box><size>0.46 0.46 0.04</size></box></geometry>
+          <material><ambient>0.1 0.3 0.1 1</ambient><diffuse>0.2 0.5 0.2 1</diffuse></material>
+        </visual>
+        <collision name="leg1_collision">
+          <pose>0.2 0.2 0.22 0 0 0</pose>
+          <geometry><cylinder><radius>0.03</radius><length>0.44</length></cylinder></geometry>
+        </collision>
+        <visual name="leg1_visual">
+          <pose>0.2 0.2 0.22 0 0 0</pose>
+          <geometry><cylinder><radius>0.03</radius><length>0.44</length></cylinder></geometry>
+        </visual>
+        <collision name="leg2_collision">
+          <pose>-0.2 0.2 0.22 0 0 0</pose>
+          <geometry><cylinder><radius>0.03</radius><length>0.44</length></cylinder></geometry>
+        </collision>
+        <visual name="leg2_visual">
+          <pose>-0.2 0.2 0.22 0 0 0</pose>
+          <geometry><cylinder><radius>0.03</radius><length>0.44</length></cylinder></geometry>
+        </visual>
+        <collision name="leg3_collision">
+          <pose>0.2 -0.2 0.22 0 0 0</pose>
+          <geometry><cylinder><radius>0.03</radius><length>0.44</length></cylinder></geometry>
+        </collision>
+        <visual name="leg3_visual">
+          <pose>0.2 -0.2 0.22 0 0 0</pose>
+          <geometry><cylinder><radius>0.03</radius><length>0.44</length></cylinder></geometry>
+        </visual>
+        <collision name="leg4_collision">
+          <pose>-0.2 -0.2 0.22 0 0 0</pose>
+          <geometry><cylinder><radius>0.03</radius><length>0.44</length></cylinder></geometry>
+        </collision>
+        <visual name="leg4_visual">
+          <pose>-0.2 -0.2 0.22 0 0 0</pose>
+          <geometry><cylinder><radius>0.03</radius><length>0.44</length></cylinder></geometry>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

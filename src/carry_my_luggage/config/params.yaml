@@ -1,0 +1,85 @@
+# Carry My Luggage : tous les seuils et gains (exigence E1).
+# Chargé en simulation et sur le robot ; params_sim.yaml ne surcharge que ce qui diffère.
+#
+# ATTENTION : ROS 2 type les paramètres. Un réel s'écrit avec un point (15.0 et non 15),
+# sinon le nœud refuse de démarrer.
+
+leg_detector:
+  ros__parameters:
+    cluster_jump_distance: 0.10   # m, écart entre deux points voisins qui ouvre un nouveau cluster
+    cluster_max_missing_rays: 2   # rayons sans écho tolérés dans un cluster ; au-delà, nouveau
+                                  # cluster (sinon deux jambes devant un fond hors portée fusionnent)
+    cluster_min_points: 3         # points minimum dans un cluster de jambe
+    leg_width_min: 0.05           # m, F2.1
+    leg_width_max: 0.25           # m, F2.1
+    leg_max_distance: 3.0         # m, pas de jambe cherchée au-delà
+    publish_markers: true
+
+operator_tracker:
+  ros__parameters:
+    odom_frame: odom
+    publish_rate: 20.0            # Hz, prédiction publiée sur /target
+    auto_acquire: false           # true : verrouille sans follow_manager (tests sur rosbag)
+    leg_pair_distance: 0.45       # m, deux jambes plus proches forment une personne
+    acquire_min_distance: 0.4     # m, F1.2
+    acquire_max_distance: 1.2     # m, F1.2
+    acquire_half_angle_deg: 30.0  # deg, F1.2 (cône de ±30°)
+    acquire_confirm_scans: 3      # scans consécutifs avant de verrouiller (≈ 0,6 s à 5 Hz)
+    acquire_confirm_distance: 0.2 # m, la personne doit rester au même endroit pendant ces scans
+    association_gate: 0.5         # m, F2.4 : seule une mesure à moins de 0,5 m de la prédiction
+    single_leg_gate: 0.3          # m, R2 : une jambe seule doit être encore plus proche
+    lost_timeout: 1.0             # s, F2.3 : cible perdue après 1 s sans mesure associée
+    reacquire_gate_growth: 0.5    # m/s, pendant la recherche la fenêtre des paires s'élargit...
+    reacquire_gate_max: 1.2       # m, ... jusqu'à cette taille (une jambe seule : single_leg_gate)
+    reacquire_pairs_only: false   # true : seule une paire relance le suivi (R2 plus strict, mais
+                                  # retrouvailles plus lentes en virage où une jambe cache l'autre)
+    single_leg_penalty: 0.1       # m, une paire de jambes est préférée à une jambe seule
+    measurement_std: 0.08         # m, bruit de mesure du filtre de Kalman (balancement des jambes)
+    acceleration_std: 0.5         # m/s², bruit du modèle à vitesse constante
+    max_target_speed: 1.5         # m/s, vitesse maximale crédible d'un piéton
+    prediction_horizon: 0.5       # s, extrapolation maximale de la position publiée
+
+gesture_detector:
+  ros__parameters:
+    gesture_distance: 0.25          # m, F4.1 : main à moins de 0,25 m du LiDAR
+    gesture_half_angle_deg: 20.0    # deg, F4.1 : secteur avant de ±20°
+    gesture_min_points: 5           # points du scan dans la zone du geste
+    gesture_operator_distance: 0.6  # m, F4.1 : opérateur à moins de 0,6 m
+    stop_gesture_duration: 2.0      # s, F4.1
+    gesture_dropout_tolerance: 0.3  # s, une brève perte de la main ne relance pas le décompte
+    stopped_linear_speed: 0.02      # m/s, robot considéré à l'arrêt en dessous
+    stopped_angular_speed: 0.05     # rad/s
+    input_timeout: 0.5              # s, âge maximal de /target et /odom
+
+follow_manager:
+  ros__parameters:
+    control_rate: 20.0            # Hz, F3.4 / P1
+    # Loi de commande (F3.1 à F3.3)
+    follow_distance: 0.8          # m, F3.1
+    min_follow_distance: 0.5      # m, F3.3 : arrêt sans recul en dessous
+    k_v: 1.5                      # 1/s ; retard en marche = v/k_v (0,10 m à 0,15 m/s ; 0,30 m avec 0,5)
+    k_w: 1.5                      # 1/s
+    max_linear_speed: 0.22        # m/s, S1 (maximum du Burger)
+    max_angular_speed: 1.5        # rad/s, S1
+    max_linear_accel: 0.5         # m/s², accélération douce (le freinage n'est pas limité)
+    turn_slowdown_angle_deg: 60.0 # deg, v est nulle si l'opérateur est à plus de 60° du cap
+    distance_deadband: 0.05       # m, pas de correction en dessous (robot immobile en pause)
+    angle_deadband_deg: 3.0       # deg
+    # Recherche (F2.3, F2.5)
+    search_angular_speed: 0.8     # rad/s, pivot vers la dernière direction connue
+    target_timeout: 0.3           # s, /target plus vieux : cible perdue
+    search_timeout: 15.0          # s, F2.5
+    # Sécurité (S2 à S5)
+    safety_distance: 0.15         # m, S2, mesurée depuis le centre du LiDAR
+    safety_half_angle_deg: 35.0   # deg, largeur du secteur avant surveillé
+    scan_timeout: 0.5             # s, S4 : chien de garde du LiDAR
+    odom_timeout: 0.5             # s
+    battery_check: true           # S5
+    battery_critical_voltage: 11.0  # V, l'OpenCR sonne l'alarme sous 11 V
+    battery_filter: 0.1           # coefficient du filtre passe-bas sur la tension
+    # Bips de l'OpenCR (turtlebot3_msgs/srv/Sound : 1 ON, 2 LOW_BATTERY, 3 ERROR, 4 BUTTON1, 5 BUTTON2)
+    use_sound: true
+    sound_beep: 4                 # bip court : verrouillage (1 fois), fin de mission (2 fois)
+    sound_error: 3                # opérateur introuvable, arrêt d'urgence
+    sound_low_battery: 2          # batterie critique
+    beep_interval: 0.5            # s, entre deux bips

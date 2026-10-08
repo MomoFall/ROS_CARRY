@@ -1,0 +1,19 @@
+# Surcharges pour Gazebo : chargé après params.yaml par sim.launch.py.
+
+follow_manager:
+  ros__parameters:
+    battery_check: false          # pas de batterie simulée
+    use_sound: false              # pas d'OpenCR : les bips sont seulement écrits dans le journal
+
+sim_operator:
+  ros__parameters:
+    entity_name: operator_legs
+    set_state_service: /gazebo/set_entity_state
+    # Parcours de ~9 m avec deux virages à 90° (tests T2, T3), en coordonnées du monde ;
+    # le robot part de (0, 0) face à +x, l'opérateur l'attend à 0,8 m devant lui.
+    waypoints: [0.8, 0.0, 4.0, 0.0, 4.0, 3.0, 7.0, 3.0]
+    speed: 0.15                   # m/s, marche lente (le Burger plafonne à 0,22 m/s)
+    start_delay: 10.0             # s, laisse le temps au robot de verrouiller l'opérateur
+    pause_index: 2                # pause au 3e point (après le premier virage)...
+    pause_duration: 10.0          # ... de 10 s, pour tester F3.5
+    rate: 20.0                    # Hz

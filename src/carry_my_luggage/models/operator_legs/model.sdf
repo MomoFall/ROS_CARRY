@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<!--
+  Opérateur simulé : deux cylindres de 12 cm de diamètre, écartés de 20 cm,
+  côte à côte perpendiculairement à la marche (axe x du modèle). Le lien est
+  cinématique : ni la gravité ni les contacts ne le déplacent, seul le nœud
+  sim_operator le pose via /gazebo/set_entity_state. Le buste n'est qu'un
+  visuel, au-dessus du plan du LiDAR (17 cm).
+-->
+<sdf version="1.6">
+  <model name="operator_legs">
+    <static>false</static>
+    <link name="body">
+      <kinematic>true</kinematic>
+      <gravity>false</gravity>
+      <inertial>
+        <mass>10.0</mass>
+        <inertia>
+          <ixx>1.0</ixx><iyy>1.0</iyy><izz>1.0</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+
+      <collision name="left_leg_collision">
+        <pose>0 0.1 0.45 0 0 0</pose>
+        <geometry><cylinder><radius>0.06</radius><length>0.9</length></cylinder></geometry>
+      </collision>
+      <visual name="left_leg_visual">
+        <pose>0 0.1 0.45 0 0 0</pose>
+        <geometry><cylinder><radius>0.06</radius><length>0.9</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.4 1</ambient><diffuse>0.15 0.15 0.6 1</diffuse></material>
+      </visual>
+
+      <collision name="right_leg_collision">
+        <pose>0 -0.1 0.45 0 0 0</pose>
+        <geometry><cylinder><radius>0.06</radius><length>0.9</length></cylinder></geometry>
+      </collision>
+      <visual name="right_leg_visual">
+        <pose>0 -0.1 0.45 0 0 0</pose>
+        <geometry><cylinder><radius>0.06</radius><length>0.9</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.4 1</ambient><diffuse>0.15 0.15 0.6 1</diffuse></material>
+      </visual>
+
+      <visual name="torso_visual">
+        <pose>0 0 1.2 0 0 0</pose>
+        <geometry><box><size>0.25 0.4 0.6</size></box></geometry>
+        <material><ambient>0.6 0.4 0.1 1</ambient><diffuse>0.9 0.6 0.1 1</diffuse></material>
+      </visual>
+      <visual name="head_visual">
+        <pose>0 0 1.65 0 0 0</pose>
+        <geometry><sphere><radius>0.12</radius></sphere></geometry>
+        <material><ambient>0.6 0.5 0.4 1</ambient><diffuse>0.9 0.75 0.6 1</diffuse></material>
+      </visual>
+    </link>
+  </model>
+</sdf>

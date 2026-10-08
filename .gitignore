@@ -1,0 +1,14 @@
+# colcon
+build/
+install/
+log/
+
+# rosbag2 : enregistrements des essais, non versionnés
+bags/*
+!bags/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
