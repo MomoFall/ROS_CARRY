@@ -1,15 +1,17 @@
 """
-Node follow_manager: state machine, control law, safety and beeps.
+Node follow_manager: state machine, control law, avoidance, way back, safety, beeps.
 
 It is the only node that publishes on /cmd_vel. At every cycle (20 Hz) it
 checks safety first (S2 to S5), updates the state machine, then computes the
-velocity command of the current state.
+velocity command of the current state: following the operator around the
+obstacles (VFH), searching, or driving back to the start pose.
 """
 
 import math
 
 from geometry_msgs.msg import PointStamped, Twist, Vector3Stamped
 from nav_msgs.msg import Odometry
+import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -20,10 +22,14 @@ from std_srvs.srv import Trigger
 from visualization_msgs.msg import MarkerArray
 
 from . import markers
-from .core.controller import (ControllerParams, follow_command, limit_acceleration,
-                              saturate, search_command)
-from .core.geometry import min_range_in_sector, polar, to_local, yaw_from_quaternion
-from .core.state_machine import Event, FollowStateMachine, Inputs, SafetyStatus, State
+from .core.avoidance import avoid, AvoidanceParams
+from .core.clustering import scan_to_points
+from .core.controller import (align_command, ControllerParams, follow_command, goto_command,
+                              limit_acceleration, saturate, search_command, steer)
+from .core.geometry import (min_range_in_sector, normalize_angle, points_to_local,
+                            points_to_world, polar, to_local, yaw_from_quaternion)
+from .core.state_machine import (ACTIVE_STATES, Event, FollowStateMachine, Inputs,
+                                 SafetyStatus, State)
 
 try:
     from turtlebot3_msgs.srv import Sound
@@ -36,6 +42,8 @@ STATE_COLORS = {
     State.FOLLOW: markers.GREEN,
     State.SEARCH: markers.ORANGE,
     State.STOPPED: markers.BLUE,
+    State.RETURN: markers.PURPLE,
+    State.HOME: markers.WHITE,
 }
 
 
@@ -54,7 +62,24 @@ class FollowManagerNode(Node):
             turn_slowdown_angle=math.radians(self._param('turn_slowdown_angle_deg', 60.0)),
             distance_deadband=self._param('distance_deadband', 0.05),
             angle_deadband=math.radians(self._param('angle_deadband_deg', 3.0)),
-            search_angular_speed=self._param('search_angular_speed', 0.8))
+            search_angular_speed=self._param('search_angular_speed', 0.8),
+            return_speed=self._param('return_speed', 0.15))
+        self.avoidance = self._param('avoidance', True)
+        self.avoid_params = AvoidanceParams(
+            window=self._param('avoid_window', 1.0),
+            robot_radius=self._param('robot_radius', 0.11),
+            clearance=self._param('avoid_clearance', 0.08),
+            sector=math.radians(self._param('avoid_sector_deg', 5.0)),
+            goal_clearance=self._param('avoid_goal_clearance', 0.35),
+            max_detour=math.radians(self._param('avoid_max_detour_deg', 100.0)),
+            hysteresis=self._param('avoid_hysteresis', 0.5))
+        self.lidar_offset_x = self._param('lidar_offset_x', -0.032)
+        return_home = self._param('return_home', True)
+        return_delay = self._param('return_delay', 5.0)
+        return_timeout = self._param('return_timeout', 120.0)
+        self.home_tolerance = self._param('home_tolerance', 0.10)
+        self.align_at_home = self._param('align_at_home', True)
+        self.home_yaw_tolerance = math.radians(self._param('home_yaw_tolerance_deg', 5.0))
         self.max_linear_accel = self._param('max_linear_accel', 0.5)
         self.rate = self._param('control_rate', 20.0)
         self.target_timeout = self._param('target_timeout', 0.3)
@@ -70,15 +95,20 @@ class FollowManagerNode(Node):
         self.sound_error = self._param('sound_error', 3)
         self.sound_low_battery = self._param('sound_low_battery', 2)
         self.beep_interval = self._param('beep_interval', 0.5)
-        self.sm = FollowStateMachine(self._param('search_timeout', 15.0), self.now())
+        self.sm = FollowStateMachine(self._param('search_timeout', 15.0), self.now(),
+                                     return_delay if return_home else None, return_timeout)
 
         self.last_scan_time = None
         self.scan_frame = 'base_scan'
         self.front_range = math.inf
         self.scan_checked = False
+        self.scan_points = np.empty((0, 2))  # last scan, odom frame
+        self.heading_odom = None  # current detour direction, odom frame
+        self.avoid_view = None  # (heading, goal angle, sectors, blocked) for RViz
         self.robot_pose = None
         self.odom_time = None
         self.home_pose = None
+        self.at_home_position = False
         self.target = None
         self.target_time = None
         self.battery_voltage = None
@@ -140,6 +170,12 @@ class FollowManagerNode(Node):
         self.front_range = min_range_in_sector(scan.ranges, scan.angle_min,
                                                scan.angle_increment, scan.range_min,
                                                scan.range_max, self.safety_half_angle)
+        if self.robot_pose is not None:
+            # Kept in the odom frame: the robot moves (and turns) until the next scan.
+            points, _ = scan_to_points(scan.ranges, scan.angle_min, scan.angle_increment,
+                                       scan.range_min, scan.range_max)
+            points[:, 0] += self.lidar_offset_x
+            self.scan_points = points_to_world(points, self.robot_pose)
         if not self.scan_checked:
             self.scan_checked = True
             if self.safety_distance <= scan.range_min:
@@ -187,10 +223,15 @@ class FollowManagerNode(Node):
 
     def on_start_follow(self, _request, response):
         self.emergency = False
-        if self.sm.state == State.STOPPED:
+        if self.sm.state in (State.STOPPED, State.HOME):
             self.sm.handle(Event.RESET, self.now())
             self.target = None
             self.target_time = None
+            if self.robot_pose is not None:
+                self.home_pose = self.robot_pose  # the new mission starts here (F1.1)
+                self.get_logger().info(
+                    f'Nouvelle pose de départ : x={self.home_pose[0]:.2f} '
+                    f'y={self.home_pose[1]:.2f}')
         response.success = True
         response.message = 'Mission (re)lancée'
         return response
@@ -218,7 +259,9 @@ class FollowManagerNode(Node):
         target_visible = (self.target_time is not None
                           and now - self.target_time <= self.target_timeout)
         stop, self.stop_requested = self.stop_requested, False
-        for event, previous, state in self.sm.step(Inputs(now, safety, target_visible, stop)):
+        home_reached = self.sm.state == State.RETURN and self.home_reached()
+        inputs = Inputs(now, safety, target_visible, stop, home_reached)
+        for event, previous, state in self.sm.step(inputs):
             self.on_transition(event, previous, state, safety)
         self.report_danger(safety)
 
@@ -231,20 +274,76 @@ class FollowManagerNode(Node):
             self.publish_markers(safety)
 
     def command(self, now, safety):
-        """Return (v, w) for the current state; zero unless following or searching."""
+        """Return (v, w) for the current state (zero when idle, stopped or home)."""
         state = self.sm.state
-        if safety.danger or state not in (State.FOLLOW, State.SEARCH):
+        self.avoid_view = None
+        if safety.danger or state not in (State.FOLLOW, State.SEARCH, State.RETURN):
             return 0.0, 0.0
         odom_ok = self.odom_time is not None and now - self.odom_time <= self.odom_timeout
-        if not odom_ok or self.target is None:
+        if not odom_ok or (state != State.RETURN and self.target is None):
             self.get_logger().warn('Odométrie ou cible absente : arrêt',
                                    throttle_duration_sec=2.0)
             return 0.0, 0.0
-        distance, angle = polar(to_local(self.target, self.robot_pose))
-        if state == State.FOLLOW:
-            self.publish_polar(distance, angle)
-            return follow_command(distance, angle, self.ctrl)
-        return search_command(angle, self.ctrl)
+        if state == State.RETURN:
+            return self.return_command()
+        goal = to_local(self.target, self.robot_pose)
+        distance, angle = polar(goal)
+        if state == State.SEARCH:
+            return search_command(angle, self.ctrl)
+        self.publish_polar(distance, angle)
+        heading = None
+        if self.avoidance and distance - self.ctrl.follow_distance > self.ctrl.distance_deadband:
+            # The robot has to move toward the operator: go around what is in between.
+            heading = self.avoid_heading(goal, ignore_goal=True)
+            if heading is None:
+                self.get_logger().warn("Passage bloqué vers l'opérateur : attente",
+                                       throttle_duration_sec=2.0)
+                return steer(0.0, angle, self.ctrl)
+        return follow_command(distance, angle, self.ctrl, heading)
+
+    def return_command(self):
+        """Return (v, w) that drive back to the start pose, around the obstacles."""
+        if self.home_pose is None:
+            return 0.0, 0.0
+        if self.at_home_position:
+            if not self.align_at_home:
+                return 0.0, 0.0
+            return align_command(self.home_pose[2] - self.robot_pose[2], self.ctrl)
+        goal = to_local(self.home_pose[:2], self.robot_pose)
+        distance, angle = polar(goal)
+        heading = None
+        if self.avoidance:
+            heading = self.avoid_heading(goal, ignore_goal=False)
+            if heading is None:
+                self.get_logger().warn('Chemin du retour bloqué : attente',
+                                       throttle_duration_sec=2.0)
+                return steer(0.0, angle, self.ctrl)
+        return goto_command(distance, angle, self.ctrl, heading)
+
+    def avoid_heading(self, goal, ignore_goal):
+        """Return the heading toward goal (robot frame) around the obstacles, or None."""
+        yaw = self.robot_pose[2]
+        points = points_to_local(self.scan_points, self.robot_pose)
+        previous = (None if self.heading_odom is None
+                    else normalize_angle(self.heading_odom - yaw))
+        heading, centres, blocked = avoid(points, goal, self.avoid_params, previous,
+                                          ignore_goal)
+        goal_angle = math.atan2(goal[1], goal[0])
+        detour = heading is not None and heading != goal_angle
+        self.heading_odom = heading + yaw if detour else None
+        self.avoid_view = (heading, goal_angle, centres, blocked)
+        return heading
+
+    def home_reached(self):
+        """Tell whether the robot is back on its start position (and heading)."""
+        if self.home_pose is None or self.robot_pose is None:
+            return False
+        if math.dist(self.home_pose[:2], self.robot_pose[:2]) < self.home_tolerance:
+            self.at_home_position = True
+        if not self.at_home_position:
+            return False
+        yaw_error = normalize_angle(self.home_pose[2] - self.robot_pose[2])
+        return not self.align_at_home or abs(yaw_error) < self.home_yaw_tolerance
 
     def on_transition(self, event, previous, state, safety):
         """Log the transition and play the matching beeps."""
@@ -255,9 +354,20 @@ class FollowManagerNode(Node):
             self.get_logger().info(text)
         if previous == State.ACQUIRE and state == State.FOLLOW:
             self.beep(self.sound_beep)  # F1.3 : opérateur verrouillé
-        elif state == State.STOPPED:
+        elif state == State.STOPPED and previous in ACTIVE_STATES:
             self.beep(self.sound_beep, count=2)  # F4.3 : mission terminée
             self.get_logger().info('Mission terminée : bagage livré')
+        elif state == State.STOPPED:
+            self.beep(self.sound_error)
+            self.get_logger().warn('Retour au point de départ annulé ou impossible')
+        elif state == State.RETURN:
+            self.at_home_position = False
+            self.heading_odom = None
+            self.beep(self.sound_beep)
+            self.get_logger().info('Retour au point de départ')
+        elif state == State.HOME:
+            self.beep(self.sound_beep, count=2)
+            self.get_logger().info('Arrivé au point de départ')
         elif event == Event.SEARCH_TIMEOUT:
             self.beep(self.sound_error)  # F2.5 : opérateur introuvable
         elif event == Event.DANGER and safety.emergency_stop:
@@ -317,8 +427,24 @@ class FollowManagerNode(Node):
             else:
                 self.get_logger().info(f'Bip ({value})')
 
+    def avoidance_markers(self):
+        """Show the blocked sectors (red dots) and the chosen heading of the avoidance."""
+        if self.avoid_view is None:
+            return []
+        heading, goal_angle, centres, blocked = self.avoid_view
+        radius = 0.4
+        dots = [(radius * math.cos(a), radius * math.sin(a)) for a in centres[blocked]]
+        result = [markers.points('base_link', 'avoidance', 0, dots, markers.RED, size=0.03,
+                                 z=0.2)]
+        if heading is not None:
+            color = markers.GREEN if heading == goal_angle else markers.ORANGE
+            tip = (0.6 * math.cos(heading), 0.6 * math.sin(heading))
+            result.append(markers.line_strip('base_link', 'avoidance', 1, [(0.0, 0.0), tip],
+                                             color, width=0.02, z=0.2))
+        return result
+
     def publish_markers(self, safety):
-        """Show the state above the robot, the safety zone and the start pose."""
+        """Show the state, the safety zone, the avoidance and the start pose."""
         state = self.sm.state
         label = state.value
         if safety.danger:
@@ -330,6 +456,7 @@ class FollowManagerNode(Node):
         color = markers.RED if safety.obstacle else markers.GREY
         array.markers.append(markers.line_strip(self.scan_frame, 'safety', 0, zone, color,
                                                 width=0.008))
+        array.markers.extend(self.avoidance_markers())
         if self.home_pose is not None:
             array.markers.append(markers.cylinder('odom', 'home', 0, self.home_pose[0],
                                                   self.home_pose[1], 0.12, 0.02,

@@ -94,9 +94,10 @@ class OperatorTrackerNode(Node):
         legs_odom = [to_world(leg, pose) for leg in legs_local]
 
         # The follow manager drives the lock: a lost target is dropped when a new
-        # acquisition starts, and the mission ends in STOPPED.
+        # acquisition starts, and the operator is forgotten once the luggage is delivered.
         status = self.tracker.status
-        if self.manager_state == 'STOPPED' and status != OperatorTracker.NONE:
+        mission_over = self.manager_state in ('STOPPED', 'RETURN', 'HOME')
+        if mission_over and status != OperatorTracker.NONE:
             self.tracker.reset()
         elif self.manager_state == 'ACQUIRE' and status == OperatorTracker.LOST:
             self.tracker.reset()

@@ -1,10 +1,12 @@
 """
 Mission state machine and safety conditions.
 
-Five states: IDLE, ACQUIRE, FOLLOW, SEARCH and STOPPED. From any state but
-STOPPED, a danger (obstacle, missing scan, critical battery, emergency stop)
-brings the robot back to IDLE at zero speed. STOPPED is the final state of a
-mission (luggage delivered).
+Following: IDLE, ACQUIRE, FOLLOW, SEARCH, then STOPPED (luggage delivered).
+From these states, a danger (obstacle, missing scan, critical battery, emergency
+stop) brings the robot back to IDLE at zero speed.
+Way back (optional): return_delay seconds after STOPPED, the robot drives back
+to its start pose (RETURN) and ends in HOME. A danger only pauses the way back
+(zero speed, no state change); the stop command cancels it.
 """
 
 from dataclasses import dataclass
@@ -19,6 +21,8 @@ class State(str, Enum):
     FOLLOW = 'FOLLOW'
     SEARCH = 'SEARCH'
     STOPPED = 'STOPPED'
+    RETURN = 'RETURN'
+    HOME = 'HOME'
 
 
 class Event(str, Enum):
@@ -32,6 +36,9 @@ class Event(str, Enum):
     STOP = 'STOP'
     DANGER = 'DANGER'
     RESET = 'RESET'
+    RETURN_START = 'RETURN_START'
+    ARRIVED = 'ARRIVED'
+    RETURN_FAILED = 'RETURN_FAILED'
 
 
 ACTIVE_STATES = (State.IDLE, State.ACQUIRE, State.FOLLOW, State.SEARCH)
@@ -43,6 +50,11 @@ TRANSITIONS = {
     (State.SEARCH, Event.TARGET_FOUND): State.FOLLOW,
     (State.SEARCH, Event.SEARCH_TIMEOUT): State.ACQUIRE,
     (State.STOPPED, Event.RESET): State.IDLE,
+    (State.STOPPED, Event.RETURN_START): State.RETURN,
+    (State.RETURN, Event.ARRIVED): State.HOME,
+    (State.RETURN, Event.RETURN_FAILED): State.STOPPED,
+    (State.RETURN, Event.STOP): State.STOPPED,
+    (State.HOME, Event.RESET): State.IDLE,
 }
 TRANSITIONS.update({(state, Event.STOP): State.STOPPED for state in ACTIVE_STATES})
 TRANSITIONS.update({(state, Event.DANGER): State.IDLE for state in ACTIVE_STATES})
@@ -75,15 +87,24 @@ class Inputs:
     safety: SafetyStatus
     target_visible: bool
     stop_requested: bool = False
+    home_reached: bool = False
 
 
 class FollowStateMachine:
-    """Pure Python state machine: events in, new state out."""
+    """
+    Pure Python state machine: events in, new state out.
 
-    def __init__(self, search_timeout=15.0, t=0.0):
+    return_delay is the wait in STOPPED before driving back home; None disables
+    the way back (STOPPED is then final, as in the original specification).
+    """
+
+    def __init__(self, search_timeout=15.0, t=0.0, return_delay=None, return_timeout=120.0):
         self.state = State.IDLE
         self.since = t
         self.search_timeout = search_timeout
+        self.return_delay = return_delay
+        self.return_timeout = return_timeout
+        self.return_pending = False
 
     def handle(self, event, t):
         """
@@ -93,6 +114,9 @@ class FollowStateMachine:
         """
         new_state = TRANSITIONS.get((self.state, event))
         if new_state is not None and new_state != self.state:
+            if new_state == State.STOPPED:
+                # Only a delivered luggage triggers the way back, not a cancelled one.
+                self.return_pending = self.state in ACTIVE_STATES
             self.state = new_state
             self.since = t
         return self.state
@@ -126,4 +150,13 @@ class FollowStateMachine:
                 fire(Event.TARGET_FOUND)
             elif inputs.t - self.since > self.search_timeout:
                 fire(Event.SEARCH_TIMEOUT)
+        elif self.state == State.STOPPED:
+            if (self.return_delay is not None and self.return_pending
+                    and inputs.t - self.since >= self.return_delay):
+                fire(Event.RETURN_START)
+        elif self.state == State.RETURN:
+            if inputs.home_reached:
+                fire(Event.ARRIVED)
+            elif inputs.t - self.since > self.return_timeout:
+                fire(Event.RETURN_FAILED)
         return transitions

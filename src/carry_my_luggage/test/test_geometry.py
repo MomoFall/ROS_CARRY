@@ -2,9 +2,11 @@
 
 import math
 
-from carry_my_luggage.core.geometry import (min_range_in_sector, normalize_angle, polar,
+from carry_my_luggage.core.geometry import (min_range_in_sector, normalize_angle,
+                                            points_to_local, points_to_world, polar,
                                             to_local, to_world, yaw_from_quaternion)
 from carry_my_luggage.core.path_walker import PathWalker
+import numpy as np
 import pytest
 from scan_utils import ANGLE_MIN, INCREMENT, make_scan, RANGE_MAX, RANGE_MIN
 
@@ -25,6 +27,16 @@ def test_local_and_world_are_inverse():
     point = (3.0, -1.0)
     back = to_world(to_local(point, pose), pose)
     assert back == pytest.approx(point)
+
+
+def test_point_arrays_match_single_points():
+    pose = (1.0, -2.0, 2.3)
+    points = np.array([(0.5, 0.1), (-1.0, 2.0), (0.0, 0.0)])
+    world = points_to_world(points, pose)
+    for point, expected in zip(points, world):
+        assert to_world(point, pose) == pytest.approx(tuple(expected))
+    assert points_to_local(world, pose) == pytest.approx(points)
+    assert points_to_local(np.empty((0, 2)), pose).shape == (0, 2)
 
 
 def test_point_ahead_of_rotated_robot():

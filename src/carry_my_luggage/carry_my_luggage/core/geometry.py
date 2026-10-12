@@ -30,6 +30,22 @@ def to_world(point, pose):
             pose[1] + sin_yaw * point[0] + cos_yaw * point[1])
 
 
+def points_to_world(points, pose):
+    """Express an (N, 2) array of points given in the frame of pose in the world frame."""
+    pts = np.asarray(points, dtype=float).reshape(-1, 2)
+    cos_yaw, sin_yaw = math.cos(pose[2]), math.sin(pose[2])
+    return np.column_stack((pose[0] + cos_yaw * pts[:, 0] - sin_yaw * pts[:, 1],
+                            pose[1] + sin_yaw * pts[:, 0] + cos_yaw * pts[:, 1]))
+
+
+def points_to_local(points, pose):
+    """Express an (N, 2) array of world points in the frame of pose (x, y, yaw)."""
+    pts = np.asarray(points, dtype=float).reshape(-1, 2)
+    dx, dy = pts[:, 0] - pose[0], pts[:, 1] - pose[1]
+    cos_yaw, sin_yaw = math.cos(pose[2]), math.sin(pose[2])
+    return np.column_stack((cos_yaw * dx + sin_yaw * dy, -sin_yaw * dx + cos_yaw * dy))
+
+
 def polar(point):
     """Return the distance and the bearing of a point (x, y)."""
     return math.hypot(point[0], point[1]), math.atan2(point[1], point[0])

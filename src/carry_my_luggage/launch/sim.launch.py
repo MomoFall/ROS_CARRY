@@ -1,10 +1,11 @@
 """
 Simulation: Gazebo + TurtleBot3 Burger + simulated operator + our four nodes.
 
-Usage: ros2 launch carry_my_luggage sim.launch.py [operator:=path] [gui:=false]
-[rviz:=false] [record:=true]
+Usage: ros2 launch carry_my_luggage sim.launch.py [operator:=path] [obstacle:=true]
+[gui:=false] [rviz:=false] [record:=true]
 With operator:=teleop (default), drive the operator from another terminal with
 ros2 run carry_my_luggage operator_teleop
+obstacle:=true adds a 40 cm box at (obstacle_x, obstacle_y) to test the avoidance.
 """
 
 from datetime import datetime
@@ -24,11 +25,12 @@ BAG_TOPICS = ['/scan', '/odom', '/tf', '/tf_static', '/legs', '/target', '/targe
               '/follow_state', '/stop_gesture', '/cmd_vel', '/follow_markers']
 
 
-def spawn(entity, sdf_file, x, y, z):
+def spawn(entity, sdf_file, x, y, z, condition=None):
     """Spawn a model in Gazebo, waiting up to 120 s for Gazebo to be ready."""
     return Node(package='gazebo_ros', executable='spawn_entity.py', output='screen',
                 arguments=['-entity', entity, '-file', sdf_file, '-x', x, '-y', y, '-z', z,
-                           '-timeout', '120'])
+                           '-timeout', '120'],
+                condition=condition)
 
 
 def generate_launch_description():
@@ -50,6 +52,10 @@ def generate_launch_description():
                               description='teleop : opérateur piloté au clavier '
                                           '(ros2 run carry_my_luggage operator_teleop) ; '
                                           'path : parcours scripté de params_sim.yaml'),
+        DeclareLaunchArgument('obstacle', default_value='false',
+                              description="Ajouter un carton pour tester l'évitement"),
+        DeclareLaunchArgument('obstacle_x', default_value='2.0'),
+        DeclareLaunchArgument('obstacle_y', default_value='0.0'),
         DeclareLaunchArgument('gui', default_value='true', description='Client Gazebo'),
         DeclareLaunchArgument('rviz', default_value='true', description='Lancer RViz2'),
         DeclareLaunchArgument('record', default_value='false',
@@ -68,6 +74,9 @@ def generate_launch_description():
               '0.0', '0.0', '0.01'),
         spawn('operator_legs', os.path.join(pkg, 'models', 'operator_legs', 'model.sdf'),
               '0.8', '0.0', '0.0'),
+        spawn('obstacle_box', os.path.join(pkg, 'models', 'obstacle_box', 'model.sdf'),
+              LaunchConfiguration('obstacle_x'), LaunchConfiguration('obstacle_y'), '0.0',
+              condition=IfCondition(LaunchConfiguration('obstacle'))),
 
         *[Node(package='carry_my_luggage', executable=name, name=name, output='screen',
                parameters=params) for name in NODES],

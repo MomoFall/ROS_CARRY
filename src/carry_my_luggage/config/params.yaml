@@ -69,8 +69,26 @@ follow_manager:
     search_angular_speed: 0.8     # rad/s, pivot vers la dernière direction connue
     target_timeout: 0.3           # s, /target plus vieux : cible perdue
     search_timeout: 15.0          # s, F2.5
+    # Évitement d'obstacles (VFH) pendant le suivi et le retour
+    avoidance: true               # false : le robot s'arrête devant l'obstacle (comportement S2 d'origine)
+    avoid_window: 1.0             # m, obstacles pris en compte jusqu'à cette distance (jamais au-delà de l'opérateur)
+    robot_radius: 0.11            # m, demi-diagonale du Burger
+    avoid_clearance: 0.08         # m, marge gardée entre le robot et les obstacles
+    avoid_sector_deg: 5.0         # deg, résolution de l'histogramme polaire
+    avoid_goal_clearance: 0.35    # m, points autour de l'opérateur ignorés (ses jambes ne sont pas un obstacle)
+    avoid_max_detour_deg: 100.0   # deg, détour maximal par rapport à la direction du but
+    avoid_hysteresis: 0.5         # préférence pour le côté choisi au cycle précédent (évite d'hésiter)
+    lidar_offset_x: -0.032        # m, position du LiDAR devant le centre du robot (Burger)
+    # Retour autonome au point de départ (après la livraison)
+    return_home: true             # false : STOPPED reste l'état final (comportement d'origine)
+    return_delay: 5.0             # s, temps laissé à l'opérateur pour reprendre son bagage
+    return_speed: 0.15            # m/s
+    return_timeout: 120.0         # s, abandon du retour au-delà (bip d'erreur)
+    home_tolerance: 0.10          # m, arrivé quand le robot est à moins de 10 cm du départ
+    align_at_home: true           # puis se remettre dans l'orientation de départ
+    home_yaw_tolerance_deg: 5.0   # deg
     # Sécurité (S2 à S5)
-    safety_distance: 0.15         # m, S2, mesurée depuis le centre du LiDAR
+    safety_distance: 0.15         # m, S2, mesurée depuis le centre du LiDAR (arrêt de dernier recours)
     safety_half_angle_deg: 35.0   # deg, largeur du secteur avant surveillé
     scan_timeout: 0.5             # s, S4 : chien de garde du LiDAR
     odom_timeout: 0.5             # s
