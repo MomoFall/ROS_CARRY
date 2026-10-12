@@ -35,6 +35,32 @@ carry_my_luggage_ws/                  # dépôt Git = workspace colcon
     └── test/                         # pytest : core/ + flake8 + pep257
 ```
 
+## Récupérer le projet sur un autre ordinateur (ex. PC du lycée)
+
+**1. Vérifier ROS 2 et les paquets TurtleBot3** (Ubuntu 22.04) :
+
+```bash
+source /opt/ros/humble/setup.bash
+ros2 pkg list | grep -E "^(turtlebot3_bringup|turtlebot3_msgs|turtlebot3_gazebo|gazebo_ros)$"
+```
+
+Les 4 noms doivent s'afficher (`turtlebot3_gazebo` et `gazebo_ros` ne servent qu'à la
+simulation). S'il en manque, installez-les (section Installation) ou, sans droits
+administrateur, demandez-le au responsable de la salle.
+
+**2. Cloner et compiler** (le dépôt est public : pas besoin de token pour cloner) :
+
+```bash
+git clone https://github.com/MomoFall/ROS_CARRY.git ~/carry_my_luggage_ws
+cd ~/carry_my_luggage_ws
+colcon build --symlink-install
+source install/setup.bash
+```
+
+Plus tard, pour récupérer les dernières modifications : `git pull` puis
+`colcon build --symlink-install`. Pour pousser depuis cet ordinateur, il faut votre token GitHub
+et une identité Git dans le dépôt (`git config user.name ...` / `git config user.email ...`).
+
 ## Installation
 
 Sur le PC **et** sur le Raspberry Pi (Ubuntu 22.04, ROS 2 Humble déjà installé) :
@@ -124,20 +150,67 @@ Gazebo reste noire ou plante, relancez avec `export LIBGL_ALWAYS_SOFTWARE=1`. Le
 `ALSOFT_DRIVERS=null` : sans carte son, OpenAL bloquait le démarrage de Gazebo ~30 s, et le
 robot n'apparaissait jamais.
 
-## Lancer sur le robot réel
+## Lancer sur le robot réel (pas à pas)
 
-Sur le Raspberry Pi (en SSH) :
+Pour les premiers essais, nos 4 nœuds tournent sur le PC et le robot ne lance que son
+`turtlebot3_bringup` : on corrige et on relance sans toucher au robot. Une fois au point, on
+les déplace sur le Raspberry Pi (étape 6).
+
+**1. Réseau et variables, sur le PC et sur le robot**
+
+- PC et robot sur le même réseau Wi-Fi.
+- Le **même `ROS_DOMAIN_ID`** des deux côtés, et **différent de celui des autres groupes** de la
+  salle : sinon vos nœuds commandent le robot du voisin (et inversement). Lisez celui du robot
+  (`grep ROS_DOMAIN_ID ~/.bashrc` en SSH), puis, sur le PC, dans chaque terminal :
+  `export ROS_DOMAIN_ID=<la même valeur>`.
+- `export TURTLEBOT3_MODEL=burger` sur le PC ; sur le robot, `TURTLEBOT3_MODEL` et `LDS_MODEL`
+  sont normalement déjà dans son `~/.bashrc`.
+
+**2. Démarrer le robot** (terminal SSH) :
 
 ```bash
-ros2 launch turtlebot3_bringup robot.launch.py         # pilote LiDAR, roues, odométrie
-ros2 launch carry_my_luggage robot.launch.py           # nos 4 nœuds (record:=true pour un rosbag)
+ssh ubuntu@<IP_DU_ROBOT>
+ros2 launch turtlebot3_bringup robot.launch.py
 ```
 
-`ros2 launch carry_my_luggage robot.launch.py bringup:=true` lance les deux d'un coup.
-Sur le PC : `ros2 launch carry_my_luggage rviz.launch.py`.
+**3. Vérifier depuis le PC** :
 
-Pendant la mise au point, on peut lancer `robot.launch.py` sur le PC plutôt que sur le Pi.
-Mesurez d'abord la fréquence réelle du LiDAR : `ros2 topic hz /scan` (~5 Hz attendus).
+```bash
+ros2 topic hz /scan                                  # ~5 Hz attendus
+ros2 topic echo /scan --once --field range_min       # 0.12 : LDS-01 ; 0.16 : LDS-02
+```
+
+Avec un LDS-02, mettez `safety_distance: 0.18` dans `src/carry_my_luggage/config/params.yaml`,
+sinon l'arrêt devant un obstacle (S2) ne peut pas se déclencher. Grâce à `--symlink-install`,
+pas besoin de recompiler : relancer suffit.
+
+**4. Premier essai, roues dans le vide** : posez le robot sur une boîte, puis sur le PC
+
+```bash
+ros2 launch carry_my_luggage robot.launch.py
+ros2 launch carry_my_luggage rviz.launch.py          # dans un second terminal
+```
+
+Placez-vous face au robot, à 0,5–1 m : il bipe et passe en FOLLOW (état affiché au-dessus du
+robot dans RViz). Reculez : les roues tournent ; approchez à moins de 0,5 m : elles s'arrêtent.
+Vérifiez aussi qu'un Ctrl+C sur `robot.launch.py` arrête bien les roues.
+
+**5. Au sol**, dans un espace dégagé, avec un équipier qui garde ce terminal prêt :
+
+```bash
+ros2 service call /emergency_stop std_srvs/srv/Trigger
+```
+
+Relance après un arrêt d'urgence : `ros2 service call /start_follow std_srvs/srv/Trigger`.
+Enchaînez ensuite les tests T1 à T8 des spécifications, en ajoutant `record:=true` à
+`robot.launch.py` pour enregistrer chaque essai dans `bags/`.
+
+Si RViz affiche des erreurs de transformation « into the future », les horloges du PC et du
+robot sont décalées : synchronisez-les (par exemple avec `chrony` sur les deux machines).
+
+**6. Plus tard, nœuds sur le Raspberry Pi** (la boucle de commande ne dépend alors plus du
+Wi-Fi) : clonez et compilez le dépôt sur le robot (voir Installation, sans Gazebo), puis
+`ros2 launch carry_my_luggage robot.launch.py bringup:=true` en SSH. Le PC ne lance plus que RViz.
 
 ## Déroulement d'une mission
 
