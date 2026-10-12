@@ -8,15 +8,12 @@ ros2 run carry_my_luggage operator_teleop
 """
 
 from datetime import datetime
-from glob import glob
 import os
-import subprocess
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import (AppendEnvironmentVariable, DeclareLaunchArgument, ExecuteProcess,
-                            IncludeLaunchDescription, LogInfo, OpaqueFunction,
-                            SetEnvironmentVariable, Shutdown)
+from launch.actions import (DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription,
+                            SetEnvironmentVariable)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -34,27 +31,7 @@ def spawn(entity, sdf_file, x, y, z):
                            '-timeout', '120'])
 
 
-def running_gazebo():
-    """Return the pids of the Gazebo processes already running on this computer."""
-    pids = []
-    for name in ('gzserver', 'gzclient'):
-        result = subprocess.run(['pgrep', '-x', name], capture_output=True, text=True)
-        pids += result.stdout.split()
-    return pids
-
-
-def simulation(context):
-    """Return the actions of the simulation, or an explicit error if Gazebo already runs."""
-    pids = running_gazebo()
-    if pids:
-        # The old Gazebo keeps the port 11345: the new one would die at once and the
-        # robot and the operator would never appear.
-        return [
-            LogInfo(msg='ERREUR : un Gazebo tourne déjà (pid ' + ', '.join(pids) + '). '
-                        'Fermez-le avec « killall -9 gzserver gzclient », puis relancez.'),
-            Shutdown(reason='Gazebo déjà lancé'),
-        ]
-
+def generate_launch_description():
     pkg = get_package_share_directory('carry_my_luggage')
     gazebo_ros = get_package_share_directory('gazebo_ros')
     tb3_gazebo = get_package_share_directory('turtlebot3_gazebo')
@@ -62,24 +39,24 @@ def simulation(context):
               os.path.join(pkg, 'config', 'params_sim.yaml'),
               {'use_sim_time': True}]
     bag = os.path.join('bags', datetime.now().strftime('sim_%Y-%m-%d_%H-%M-%S'))
-    # Every model used is on this computer: the TurtleBot3 meshes (model://turtlebot3_common)
-    # and the sun and ground of Gazebo.
-    model_paths = [os.path.join(tb3_gazebo, 'models'), os.path.join(pkg, 'models')]
-    model_paths += sorted(glob('/usr/share/gazebo-*/models'))
 
     def include(path, condition=None, **arguments):
         return IncludeLaunchDescription(PythonLaunchDescriptionSource(path),
                                         launch_arguments=arguments.items(),
                                         condition=condition)
 
-    return [
+    return LaunchDescription([
+        DeclareLaunchArgument('operator', default_value='teleop', choices=['teleop', 'path'],
+                              description='teleop : opérateur piloté au clavier '
+                                          '(ros2 run carry_my_luggage operator_teleop) ; '
+                                          'path : parcours scripté de params_sim.yaml'),
+        DeclareLaunchArgument('gui', default_value='true', description='Client Gazebo'),
+        DeclareLaunchArgument('rviz', default_value='true', description='Lancer RViz2'),
+        DeclareLaunchArgument('record', default_value='false',
+                              description='Enregistrer un rosbag dans bags/'),
         SetEnvironmentVariable('TURTLEBOT3_MODEL', 'burger'),
         # No sound card (WSL, VM): OpenAL would block Gazebo ~30 s at startup.
         SetEnvironmentVariable('ALSOFT_DRIVERS', 'null'),
-        # Never download models: on a filtered network (school), Gazebo would wait for the
-        # online database and the robot would never be spawned.
-        SetEnvironmentVariable('GAZEBO_MODEL_DATABASE_URI', ''),
-        *[AppendEnvironmentVariable('GAZEBO_MODEL_PATH', path) for path in model_paths],
 
         include(os.path.join(gazebo_ros, 'launch', 'gzserver.launch.py'),
                 world=os.path.join(pkg, 'worlds', 'follow_test.world')),
@@ -102,18 +79,4 @@ def simulation(context):
                 condition=IfCondition(LaunchConfiguration('rviz')), use_sim_time='true'),
         ExecuteProcess(cmd=['ros2', 'bag', 'record', '-o', bag, *BAG_TOPICS],
                        output='screen', condition=IfCondition(LaunchConfiguration('record'))),
-    ]
-
-
-def generate_launch_description():
-    return LaunchDescription([
-        DeclareLaunchArgument('operator', default_value='teleop', choices=['teleop', 'path'],
-                              description='teleop : opérateur piloté au clavier '
-                                          '(ros2 run carry_my_luggage operator_teleop) ; '
-                                          'path : parcours scripté de params_sim.yaml'),
-        DeclareLaunchArgument('gui', default_value='true', description='Client Gazebo'),
-        DeclareLaunchArgument('rviz', default_value='true', description='Lancer RViz2'),
-        DeclareLaunchArgument('record', default_value='false',
-                              description='Enregistrer un rosbag dans bags/'),
-        OpaqueFunction(function=simulation),
     ])
