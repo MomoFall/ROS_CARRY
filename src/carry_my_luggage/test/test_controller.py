@@ -2,8 +2,7 @@
 
 import math
 
-from carry_my_luggage.core.controller import (align_command, ControllerParams,
-                                              follow_command, goto_command,
+from carry_my_luggage.core.controller import (ControllerParams, follow_command,
                                               limit_acceleration, search_command)
 import pytest
 
@@ -49,29 +48,6 @@ def test_search_pivots_in_place():
     assert v == 0.0
     assert w == -P.search_angular_speed
     assert search_command(0.0, P) == (0.0, 0.0)
-
-
-def test_detour_heading_steers_but_distance_sets_the_speed():
-    v_straight, w_straight = follow_command(1.1, 0.0, P)
-    v_detour, w_detour = follow_command(1.1, 0.0, P, heading=math.radians(-30.0))
-    assert w_straight == 0.0
-    assert w_detour < 0.0
-    assert 0.0 < v_detour < v_straight
-
-
-def test_goto_slows_down_near_the_goal_and_turns_first():
-    assert goto_command(3.0, 0.0, P)[0] == P.return_speed
-    assert goto_command(0.05, 0.0, P)[0] == pytest.approx(P.k_v * 0.05)
-    v, w = goto_command(3.0, math.pi, P)
-    assert v == 0.0
-    assert w == P.max_angular_speed
-
-
-def test_align_turns_in_place_the_short_way():
-    v, w = align_command(math.radians(350.0), P)
-    assert v == 0.0
-    assert w < 0.0
-    assert align_command(0.01, P) == (0.0, 0.0)
 
 
 def test_acceleration_limit_only_on_speed_up():

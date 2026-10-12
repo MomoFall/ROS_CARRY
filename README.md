@@ -5,10 +5,7 @@ le suit à 0,8 m, le cherche s'il le perd et s'arrête sur un geste de la main.
 ROS 2 Humble, Python (rclpy + NumPy), simulation Gazebo Classic 11.
 
 Le code suit les deux documents du projet : *Spécifications fonctionnelles* (F1 à F4, S1 à S5,
-P, R, E) et *Architecture ROS 2* (4 nœuds, logique pure dans `core/`). Deux fonctionnalités
-ont été ajoutées au sujet : le **contournement des obstacles** pendant le suivi (VFH) et le
-**retour autonome au point de départ** une fois le bagage livré (voir « Fonctionnalités
-ajoutées »).
+P, R, E) et *Architecture ROS 2* (4 nœuds, logique pure dans `core/`).
 
 ## Arborescence
 
@@ -20,13 +17,12 @@ carry_my_luggage_ws/                  # dépôt Git = workspace colcon
     │   ├── leg_detector_node.py      # /scan -> /legs
     │   ├── operator_tracker_node.py  # /legs -> /target (verrouillage + Kalman)
     │   ├── gesture_detector_node.py  # /scan + /target + /odom -> /stop_gesture
-    │   ├── follow_manager_node.py    # machine à états, commande, évitement, retour, sécurité -> /cmd_vel
+    │   ├── follow_manager_node.py    # machine à états, commande, sécurité, bips -> /cmd_vel
     │   ├── sim_operator_node.py      # simulation : déplace les jambes dans Gazebo
     │   ├── operator_teleop_node.py   # simulation : pilote l'opérateur avec les flèches
     │   ├── markers.py                # marqueurs RViz communs
     │   └── core/                     # logique pure, sans ROS, testée avec pytest
     │       ├── clustering.py  kalman.py  controller.py  gesture.py  state_machine.py
-    │       ├── avoidance.py          # évitement d'obstacles (histogramme polaire VFH)
     │       ├── geometry.py           # changements de repère, secteurs du scan
     │       ├── path_walker.py        # parcours scripté de l'opérateur simulé
     │       └── teleop.py             # clavier -> déplacement de l'opérateur simulé
@@ -36,7 +32,6 @@ carry_my_luggage_ws/                  # dépôt Git = workspace colcon
     ├── rviz/carry_my_luggage.rviz
     ├── worlds/follow_test.world      # salle avec table et chaise près du parcours (T5)
     ├── models/operator_legs/         # deux cylindres = les jambes de l'opérateur
-    ├── models/obstacle_box/          # carton de 40 cm pour tester l'évitement
     └── test/                         # pytest : core/ + flake8 + pep257
 ```
 
@@ -104,8 +99,8 @@ Sur le Raspberry Pi, inutile d'installer Gazebo :
 colcon test --packages-select carry_my_luggage && colcon test-result --verbose
 ```
 
-80 tests : détection des jambes, Kalman et verrouillage, loi de commande, geste, machine à états
-(retour compris), évitement d'obstacles, téléopération de l'opérateur simulé, plus flake8 et pep257. Pour itérer plus vite sur la logique : `cd src/carry_my_luggage && python3 -m pytest test/`.
+62 tests : détection des jambes, Kalman et verrouillage, loi de commande, geste, machine à états,
+téléopération de l'opérateur simulé, plus flake8 et pep257. Pour itérer plus vite sur la logique : `cd src/carry_my_luggage && python3 -m pytest test/`.
 
 ## Lancer en simulation
 
@@ -149,13 +144,6 @@ ros2 service call /stop_follow std_srvs/srv/Trigger
 
 Pour tester l'arrêt d'urgence ou un obstacle soudain (T7), posez une boîte devant le robot dans
 Gazebo.
-
-**Tester l'évitement et le retour** : `sim.launch.py obstacle:=true` ajoute un carton de 40 cm
-en (2, 0) (`obstacle_x:=… obstacle_y:=…` pour le déplacer). Faites passer l'opérateur juste à
-côté du carton : le robot le contourne au lieu de s'arrêter. Puis `/stop_follow` : 5 s plus
-tard, le robot rentre en (0, 0) en contournant de nouveau le carton. Dans RViz, le trait au-dessus
-du robot montre le cap choisi (vert : droit vers le but, orange : détour) et les points rouges les
-directions bloquées.
 
 Sous WSL, les fenêtres Gazebo et RViz s'affichent sous Windows grâce à WSLg. Si la fenêtre
 Gazebo reste noire ou plante, relancez avec `export LIBGL_ALWAYS_SOFTWARE=1`. Le launch fixe
@@ -230,18 +218,15 @@ Wi-Fi) : clonez et compilez le dépôt sur le robot (voir Installation, sans Gaz
 |---|---|---|---|
 | 1 | Lance le système | Attend un scan et une batterie correcte | IDLE |
 | 2 | Se place face au robot, à 0,5–1 m | Verrouille la personne la plus proche du cône ±30°, 0,4–1,2 m, **1 bip** | ACQUIRE → FOLLOW |
-| 3 | Marche lentement | Le suit à 0,8 m en contournant les obstacles, ne recule jamais, s'arrête s'il s'approche à moins de 0,5 m | FOLLOW |
+| 3 | Marche lentement | Le suit à 0,8 m, ne recule jamais, s'arrête s'il s'approche à moins de 0,5 m | FOLLOW |
 | 4 | S'arrête | S'immobilise en gardant la cible, repart avec lui | FOLLOW |
 | — | Disparaît (virage, occlusion) | Après 1 s : s'arrête et pivote vers sa dernière position ; reprend dès qu'il le revoit. Après 15 s : **bip d'erreur**, nouvelle acquisition | SEARCH |
-| 5 | S'approche à moins de 0,6 m et met la main devant le LiDAR (< 0,25 m, ±20°) pendant 2 s | S'arrête, **2 bips** : bagage livré | STOPPED |
-| 6 | Reprend son bagage | 5 s plus tard, **1 bip**, rentre seul au point de départ en contournant les obstacles | RETURN |
-| 7 | — | Arrivé, se remet dans son orientation de départ, **2 bips** | HOME |
+| 5 | S'approche à moins de 0,6 m et met la main devant le LiDAR (< 0,25 m, ±20°) pendant 2 s | S'arrête, **2 bips** : mission terminée | STOPPED |
 
-Sécurité, quel que soit l'état :
+Sécurité, quel que soit l'état (sauf STOPPED, déjà à l'arrêt) :
 
-- obstacle à moins de 0,15 m devant (malgré l'évitement), ou aucun scan depuis 0,5 s : vitesse
-  nulle. Pendant le suivi, le robot passe en IDLE et repart seul dès que la voie est libre, sans
-  changer de cible ; pendant le retour, il attend simplement sur place ;
+- obstacle à moins de 0,15 m devant, ou aucun scan depuis 0,5 s : vitesse nulle (IDLE). Le robot
+  repart seul dès que la voie est libre, sans changer de cible ;
 - batterie sous 11 V : refuse de démarrer, ou s'arrête (bip batterie) ;
 - arrêt d'urgence : vitesse nulle immédiate, **verrouillé** jusqu'à `/start_follow`.
 
@@ -249,9 +234,9 @@ Sécurité, quel que soit l'état :
 
 | Service | Effet |
 |---|---|
-| `/stop_follow` | Fin de mission, comme le geste (F4.2) ; pendant le retour, l'annule (le robot reste sur place) |
+| `/stop_follow` | Fin de mission, comme le geste (F4.2) |
 | `/emergency_stop` | Arrêt d'urgence verrouillé (S3) |
-| `/start_follow` | Déverrouille l'arrêt d'urgence ; depuis STOPPED ou HOME, lance une nouvelle mission qui part de la position actuelle |
+| `/start_follow` | Déverrouille l'arrêt d'urgence ; depuis STOPPED, lance une nouvelle mission |
 
 ```bash
 ros2 service call /emergency_stop std_srvs/srv/Trigger
@@ -264,10 +249,10 @@ ros2 service call /emergency_stop std_srvs/srv/Trigger
 | `/legs` | `geometry_msgs/PoseArray` | Centres des jambes candidates (repère du LiDAR) |
 | `/target` | `geometry_msgs/PointStamped` | Position prédite de l'opérateur (repère `odom`), publiée à 20 Hz tant qu'il est suivi |
 | `/stop_gesture` | `std_msgs/Empty` | Geste d'arrêt reconnu |
-| `/follow_state` | `std_msgs/String` | IDLE, ACQUIRE, FOLLOW, SEARCH, STOPPED, RETURN ou HOME |
+| `/follow_state` | `std_msgs/String` | IDLE, ACQUIRE, FOLLOW, SEARCH ou STOPPED |
 | `/cmd_vel` | `geometry_msgs/Twist` | Publié **uniquement** par `follow_manager`, à 20 Hz |
 | `/target_polar` | `geometry_msgs/Vector3Stamped` | x = distance, y = angle, z = erreur de distance (pour PlotJuggler) |
-| `/follow_markers` | `visualization_msgs/MarkerArray` | Jambes, personnes, cible, zone du geste, zone de sécurité, état, cap d'évitement, point de départ |
+| `/follow_markers` | `visualization_msgs/MarkerArray` | Jambes, personnes, cible, zone du geste, zone de sécurité, état |
 
 ## Enregistrer un essai (E4)
 
@@ -277,55 +262,6 @@ PlotJuggler et affichez `/target_polar/vector/x` et `/cmd_vel/linear/x`.
 
 Pour régler le suivi sur un bag réel sans `follow_manager`, passez `auto_acquire: true` à
 `operator_tracker` : il verrouille alors seul la première personne devant le robot.
-
-## Fonctionnalités ajoutées
-
-Rédigées comme les exigences des spécifications, pour pouvoir les y reporter.
-
-### F5 — Contourner un obstacle pendant le suivi (VFH)
-
-- **F5.1** Les points du scan situés entre le robot et l'opérateur (à moins de 1 m, et jamais
-  au-delà de l'opérateur) sont des obstacles. Les points à moins de 0,35 m de l'opérateur sont
-  ses jambes et sont ignorés.
-- **F5.2** Chaque obstacle, grossi du rayon du robot (0,11 m) et d'une marge (0,08 m), bloque
-  les secteurs angulaires de 5° dans lesquels le robot le heurterait (histogramme polaire).
-- **F5.3** Si la direction de l'opérateur est libre, le robot y va tout droit. Sinon, il prend
-  le secteur libre le plus proche de l'opérateur (détour de 100° au plus), en gardant de
-  préférence le côté choisi au cycle précédent pour ne pas hésiter.
-- **F5.4** La distance à l'opérateur règle toujours la vitesse (F3.2), et l'évitement ne sert
-  que si le robot doit avancer : arrêté à 0,8 m, il reste tourné vers l'opérateur.
-- **F5.5** Si toutes les directions sont bloquées, le robot attend, tourné vers l'opérateur.
-  L'arrêt à 0,15 m (S2) reste le dernier recours.
-- **Acceptation** (T9) : un carton de 40 cm entre le robot et l'opérateur est contourné sans
-  arrêt de sécurité ni perte de l'opérateur, le robot restant à plus de 10 cm du carton.
-
-### F6 — Rentrer seul au point de départ
-
-- **F6.1** Une fois le bagage livré (STOPPED par le geste ou `/stop_follow`), le robot attend
-  5 s puis part vers la pose enregistrée au lancement (F1.1) : état RETURN, 1 bip.
-- **F6.2** Il y va à 0,15 m/s au plus en contournant les obstacles (F5), à l'odométrie.
-- **F6.3** À moins de 10 cm du point de départ, il se remet dans son orientation de départ
-  (± 5°), s'arrête et bipe deux fois : état HOME.
-- **F6.4** Un danger met le retour en pause sans l'annuler ; `/stop_follow` l'annule ; au-delà
-  de 120 s, il est abandonné (bip d'erreur).
-- **F6.5** `/start_follow` depuis HOME lance une nouvelle mission, qui part de là.
-- **Acceptation** (T10) : après un suivi de 3 à 10 m, le robot revient à moins de 15 cm de
-  son point de départ (en simulation : moins de 10 cm).
-
-Les deux fonctionnalités se désactivent dans `params.yaml` (`avoidance: false`,
-`return_home: false`) pour retrouver exactement le comportement des spécifications d'origine.
-
-**Limites à connaître** :
-
-- **Hauteur :** le LiDAR ne voit qu'à sa hauteur, à environ 18 cm du sol. Un obstacle plus bas
-  (marche, sac posé par terre) n'est ni contourné ni détecté par S2.
-- **Approche locale :** VFH ne connaît pas le plan de la salle. Il contourne un obstacle isolé,
-  mais un cul-de-sac (obstacle en U) peut le bloquer.
-- **Passages étroits :** il faut au moins 2 × 0,19 = 0,38 m de large pour passer.
-- **Dérive de l'odométrie :** le retour se fait à l'odométrie, qui dérive sur le vrai robot
-  (glissement des roues, surtout dans les virages). Comptez quelques centimètres d'erreur par
-  mètre parcouru ; sans carte, rien ne la corrige.
-- **Bagage qui dépasse :** s'il dépasse du robot, augmentez `robot_radius`.
 
 ## Réglages
 
@@ -351,9 +287,7 @@ Tous ces points sont réglables ou facilement réversibles.
 4. **`gesture_detector` lit aussi `/odom`**, pour la condition « robot à l'arrêt » du geste.
 5. **Danger → IDLE, puis reprise automatique.** Obstacle et LiDAR muet ramènent en IDLE ; dès
    que c'est fini, IDLE → ACQUIRE → FOLLOW dans le même cycle si la cible est toujours suivie
-   (scénario nominal, étape 4). L'arrêt d'urgence, lui, reste verrouillé. Avec les
-   fonctionnalités ajoutées, S2 n'est plus le comportement normal devant un obstacle (il est
-   contourné, F5) et STOPPED n'est plus final (retour au départ, F6).
+   (scénario nominal, étape 4). L'arrêt d'urgence, lui, reste verrouillé, et STOPPED reste final.
 6. **Le geste et `/stop_follow` sont acceptés dans tous les états**, pas seulement en FOLLOW :
    une main trop près (< 0,15 m) déclenche d'abord l'arrêt de sécurité, et le geste doit quand
    même terminer la mission.
@@ -432,15 +366,13 @@ reçoit pas les données du robot. Les lignes de RViz `Stereo is NOT SUPPORTED` 
 | F3.1 à F3.5 suivi | `core/controller.follow_command` |
 | F4.1 geste | `core/gesture.py`, `gesture_detector_node.py` |
 | F4.2, S3 services | `follow_manager_node.on_stop_follow`, `on_emergency_stop` |
-| F5 évitement (VFH) | `core/avoidance.py`, `follow_manager_node.avoid_heading` |
-| F6 retour au départ | `core/state_machine.py` (RETURN, HOME), `core/controller.goto_command`, `follow_manager_node.return_command` |
 | S1 à S5 sécurité | `follow_manager_node.safety_status`, `publish_cmd` |
 | P1, P2 | boucle de commande à 20 Hz, `/target` republié dès chaque scan |
 | E1 à E4 | `config/`, `launch/`, `/follow_markers` + `rviz/`, `record:=true` |
 
 ## Ce qui a été vérifié
 
-- `colcon build` et les 80 tests passent sous ROS 2 Humble (Ubuntu 22.04, WSL).
+- `colcon build` et les 62 tests passent sous ROS 2 Humble (Ubuntu 22.04, WSL).
 - Les 4 nœuds (`robot.launch.py`) ont tourné face à un simulateur 2D cinématique (LiDAR LDS-01
   360 rayons à 5 Hz, bruit 1 cm, table et chaise près du parcours) sur un scénario complet :
   - verrouillage en 0,4 s ;
@@ -458,12 +390,5 @@ reçoit pas les données du robot. Les lignes de RViz `Stereo is NOT SUPPORTED` 
 - Pilotage au clavier : `operator_teleop` testé dans un pseudo-terminal (flèches, + / -,
   Ctrl+C). Dans Gazebo, avec des appuis simulés, le robot suit l'opérateur entre 0,80 et 0,97 m,
   virages compris, sans le perdre.
-- Évitement et retour, dans Gazebo avec le carton en (2, 0), sur un trajet où la ligne droite
-  robot → opérateur traverse le carton :
-  - pendant le suivi, le robot fait un détour sur 18 des 103 cycles enregistrés. Il reste à
-    0,20 m au moins de la surface du carton (environ 11 cm de jeu sur le côté), sans arrêt de
-    sécurité ni perte de l'opérateur ;
-  - au retour, le détour dure 44 cycles sur 108. Le robot arrive à 8,5 cm du point de départ,
-    orienté à -2,2° de son orientation de départ, en 26 s.
 - **Pas encore testé** : le geste et l'occlusion dans Gazebo (seulement en 2D), puis le robot
-  réel. Ce sont les prochaines étapes de la démarche (T1 à T10).
+  réel. Ce sont les prochaines étapes de la démarche (T1 à T8).

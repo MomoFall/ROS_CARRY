@@ -81,59 +81,6 @@ def test_step_reports_transitions():
                            (Event.TARGET_LOCKED, State.ACQUIRE, State.FOLLOW)]
 
 
-def delivered(return_delay=5.0, return_timeout=120.0):
-    """Return a state machine that has just delivered the luggage at t = 10 s."""
-    sm = FollowStateMachine(return_delay=return_delay, return_timeout=return_timeout)
-    step(sm, 0.0, target=True)
-    step(sm, 10.0, target=True, stop=True)
-    assert sm.state == State.STOPPED
-    return sm
-
-
-def home_step(sm, t, reached, safety=SAFE, stop=False):
-    sm.step(Inputs(t, safety, False, stop, reached))
-    return sm.state
-
-
-def test_way_back_after_delivery():
-    sm = delivered()
-    assert home_step(sm, 14.9, False) == State.STOPPED
-    assert home_step(sm, 15.0, False) == State.RETURN
-    assert home_step(sm, 30.0, False) == State.RETURN
-    assert home_step(sm, 31.0, True) == State.HOME
-    assert home_step(sm, 60.0, True) == State.HOME
-    sm.handle(Event.RESET, 61.0)
-    assert sm.state == State.IDLE
-
-
-def test_danger_only_pauses_the_way_back():
-    sm = delivered()
-    home_step(sm, 15.0, False)
-    assert home_step(sm, 16.0, False, safety=SafetyStatus(obstacle=True)) == State.RETURN
-    assert home_step(sm, 17.0, False, safety=SafetyStatus(emergency_stop=True)) == State.RETURN
-    assert home_step(sm, 18.0, True) == State.HOME
-
-
-def test_stop_cancels_the_way_back_for_good():
-    sm = delivered()
-    home_step(sm, 15.0, False)
-    assert home_step(sm, 16.0, False, stop=True) == State.STOPPED
-    assert home_step(sm, 100.0, False) == State.STOPPED
-
-
-def test_way_back_gives_up_after_timeout():
-    sm = delivered(return_timeout=60.0)
-    home_step(sm, 15.0, False)
-    assert home_step(sm, 75.0, False) == State.RETURN
-    assert home_step(sm, 75.1, False) == State.STOPPED
-    assert home_step(sm, 200.0, False) == State.STOPPED
-
-
-def test_no_way_back_when_disabled():
-    sm = delivered(return_delay=None)
-    assert home_step(sm, 1000.0, False) == State.STOPPED
-
-
 def test_safety_reasons():
     assert SafetyStatus().danger is False
     status = SafetyStatus(obstacle=True, emergency_stop=True)
