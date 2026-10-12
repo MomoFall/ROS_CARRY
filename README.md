@@ -403,6 +403,23 @@ Tous ces points sont réglables ou facilement réversibles.
 **Fenêtre Gazebo noire ou qui plante** (WSL, carte graphique) : `export LIBGL_ALWAYS_SOFTWARE=1`
 avant de lancer.
 
+**Robot réel : `Sécurité : scan_timeout -> vitesse nulle` en continu, RViz vide.** Le PC ne
+reçoit pas les données du robot. Les lignes de RViz `Stereo is NOT SUPPORTED` et
+`OpenGl version` ne sont pas des erreurs. Vérifiez dans l'ordre :
+
+1. **Sur le robot (SSH)** : `turtlebot3_bringup` tourne, et `ros2 topic hz /scan` y affiche
+   ~5 Hz. Sinon, le problème est sur le robot (bringup, `LDS_MODEL`).
+2. **Dans chaque terminal du PC et du robot** :
+   `echo "$ROS_DISTRO domaine=$ROS_DOMAIN_ID localhost=$ROS_LOCALHOST_ONLY rmw=$RMW_IMPLEMENTATION"`.
+   Il faut `humble` des deux côtés, le même domaine, `localhost` vide ou à 0, et le même `rmw`
+   (ou vide des deux côtés). Un `export` ne vaut que pour le terminal où il a été tapé : mettez-le
+   dans `~/.bashrc`.
+3. **Sur le PC** : `ros2 daemon stop`, puis `ros2 topic list`, qui doit montrer `/scan`,
+   `/odom` et `/battery_state`.
+4. **Toujours rien** : le réseau bloque la découverte DDS (fréquent sur le Wi-Fi d'un
+   établissement). Testez avec `ros2 multicast receive` sur le PC et `ros2 multicast send` sur le
+   robot ; si rien n'arrive, utilisez le réseau prévu pour les robots (routeur de la salle).
+
 ## Correspondance exigences → code
 
 | Exigence | Où |
