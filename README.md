@@ -382,6 +382,27 @@ Tous ces points sont réglables ou facilement réversibles.
 - **Hors périmètre** : la ré-identification. Si une autre personne passe très près de
   l'opérateur, le suivi peut basculer sur elle.
 
+## Dépannage
+
+**Gazebo s'ouvre, mais ni robot ni opérateur** (`spawn_entity` attend sans fin, et
+`SetEntityState: entity [operator_legs] does not exist` défile en boucle). Deux causes :
+
+1. **Un Gazebo d'un lancement précédent tourne encore**, par exemple après une fenêtre fermée
+   ou un Ctrl+C. Il garde le port de Gazebo, le nouveau ne démarre pas. `sim.launch.py` le
+   détecte et s'arrête avec un message ; pour le fermer :
+
+   ```bash
+   killall -9 gzserver gzclient
+   ```
+
+2. **Gazebo attend sa base de modèles en ligne**, que le réseau de l'établissement bloque.
+   `sim.launch.py` la désactive (`GAZEBO_MODEL_DATABASE_URI` vide) et donne lui-même les dossiers
+   de modèles locaux, TurtleBot3 compris. Si le problème apparaît avec une ancienne version du
+   dépôt, mettez-la à jour : `git pull` puis `colcon build --symlink-install`.
+
+**Fenêtre Gazebo noire ou qui plante** (WSL, carte graphique) : `export LIBGL_ALWAYS_SOFTWARE=1`
+avant de lancer.
+
 ## Correspondance exigences → code
 
 | Exigence | Où |
